@@ -14,7 +14,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "astro": "^6.1.3",
-    "bitcoin-decoder": "^0.1.0",
+    "bitcoin-decoder": "^0.2.0",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {

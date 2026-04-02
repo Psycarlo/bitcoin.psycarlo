@@ -3,67 +3,75 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout>
-	<div id="container">
-		<main>
-			<section id="hero">
-				<h1>Bitcoin</h1>
-				<input
-					type="text"
-					id="bitcoin-input"
-					placeholder="Enter bitcoin URI, invoice, address, ..."
-				/>
-			</section>
+	<div class="h-full bg-[#1a1a1a] text-white font-sans">
+		<main class="h-full flex justify-center items-center">
+			<div id="content" class="flex items-center flex-col w-full max-w-[480px] p-4 transition-transform duration-500 ease-in-out">
+				<h1 class="text-[28px] m-0 mb-6 text-white">Bitcoin</h1>
+				<div class="flex w-full">
+					<input
+						type="text"
+						id="bitcoin-input"
+						class="flex-1 px-4 py-3 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
+						placeholder="Enter bitcoin URI, invoice, address, ..."
+					/>
+					<button id="decode-btn" type="button" class="px-5 py-3 bg-white text-[#1a1a1a] border-none rounded-none text-base cursor-pointer whitespace-nowrap hover:bg-[#e0e0e0]">Decode</button>
+				</div>
+				<div id="result" class="w-full mt-6 transition-opacity duration-400 ease-in-out opacity-0"></div>
+			</div>
 		</main>
 	</div>
 </Layout>
 
-<style>
-	#container {
-		font-family: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif;
-		height: 100%;
-		background: #1a1a1a;
-		color: #ffffff;
+<script>
+	import { decode } from 'bitcoin-decoder';
+
+	const input = document.getElementById('bitcoin-input') as HTMLInputElement;
+	const btn = document.getElementById('decode-btn') as HTMLButtonElement;
+	const result = document.getElementById('result') as HTMLDivElement;
+	const content = document.getElementById('content') as HTMLDivElement;
+
+	async function handleDecode() {
+		const value = input.value.trim();
+		if (!value) return;
+
+		const decoded = await decode(value);
+		input.value = '';
+
+		content.classList.add('-translate-y-20');
+
+		if (!decoded.valid) {
+			result.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
+		} else {
+			const dest = decoded.destination;
+			const f = (label: string, value: string, extra = '') =>
+				`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right ${extra}">${value}</span></div>`;
+
+			let html = f('Type', dest.type);
+			html += f('Protocol', dest.protocol);
+			html += f('Network', decoded.network);
+			html += f('Destination', dest.destination, 'max-w-[280px] break-all');
+
+			if ('addressType' in dest) {
+				html += f('Address Type', dest.addressType);
+			}
+
+			if (decoded.metadata?.amount != null) {
+				html += f('Amount', `${decoded.metadata.amount} sats`);
+			}
+
+			if (decoded.metadata?.description) {
+				html += f('Description', decoded.metadata.description);
+			}
+
+			result.innerHTML = html;
+		}
+
+		result.classList.remove('opacity-0');
+		result.classList.add('opacity-100');
 	}
 
-	main {
-		height: 100%;
-		display: flex;
-		justify-content: center;
-	}
-
-	#hero {
-		display: flex;
-		align-items: center;
-		flex-direction: column;
-		justify-content: center;
-		padding: 16px;
-		width: 100%;
-		max-width: 480px;
-	}
-
-	h1 {
-		font-size: 28px;
-		margin: 0 0 24px;
-		color: #ffffff;
-	}
-
-	#bitcoin-input {
-		width: 100%;
-		padding: 12px 16px;
-		background: transparent;
-		border: 1px solid #555;
-		border-radius: 0;
-		color: #ffffff;
-		font-size: 16px;
-		outline: none;
-		box-sizing: border-box;
-	}
-
-	#bitcoin-input::placeholder {
-		color: #777;
-	}
-
-	#bitcoin-input:focus {
-		border-color: #888;
-	}
-</style>
+	btn.addEventListener('click', handleDecode);
+	input.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') handleDecode();
+	});
+</script>
