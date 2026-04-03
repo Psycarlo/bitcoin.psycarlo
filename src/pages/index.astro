@@ -1,12 +1,12 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import Layout from '../layouts/layout.astro';
 ---
 
 <Layout>
 	<div class="h-full bg-[#1a1a1a] text-white font-sans">
 		<main class="h-full flex justify-center items-center">
-			<div id="content" class="flex items-center flex-col w-full max-w-[480px] p-4 transition-transform duration-500 ease-in-out">
-				<h1 class="text-[28px] m-0 mb-6 text-white">Bitcoin</h1>
+			<div id="content" class="flex items-center flex-col w-full max-w-120 p-4 transition-transform duration-500 ease-in-out">
+				<h1 class="text-[28px] m-0 mb-6 text-white">bitcoin-decoder</h1>
 				<div class="flex w-full">
 					<input
 						type="text"
@@ -25,53 +25,62 @@ import Layout from '../layouts/Layout.astro';
 <script>
 	import { decode } from 'bitcoin-decoder';
 
-	const input = document.getElementById('bitcoin-input') as HTMLInputElement;
-	const btn = document.getElementById('decode-btn') as HTMLButtonElement;
-	const result = document.getElementById('result') as HTMLDivElement;
-	const content = document.getElementById('content') as HTMLDivElement;
+	const input = document.querySelector('#bitcoin-input') as HTMLInputElement;
+	const btn = document.querySelector('#decode-btn') as HTMLButtonElement;
+	const result = document.querySelector('#result') as HTMLDivElement;
+	const content = document.querySelector('#content') as HTMLDivElement;
 
-	async function handleDecode() {
-		const value = input.value.trim();
-		if (!value) return;
+	const row = (label: string, text: string, extra = '') =>
+		`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right ${extra}">${text}</span></div>`;
 
-		const decoded = await decode(value);
+	const handleDecode = async () => {
+		const inputValue = input.value.trim();
+		if (!inputValue) {return;}
+
+		const decoded = await decode(inputValue);
 		input.value = '';
 
 		content.classList.add('-translate-y-20');
 
-		if (!decoded.valid) {
-			result.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
-		} else {
-			const dest = decoded.destination;
-			const f = (label: string, value: string, extra = '') =>
-				`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right ${extra}">${value}</span></div>`;
+		if (decoded.valid) {
+			let html = '';
 
-			let html = f('Type', dest.type);
-			html += f('Protocol', dest.protocol);
-			html += f('Network', decoded.network);
-			html += f('Destination', dest.destination, 'max-w-[280px] break-all');
-
-			if ('addressType' in dest) {
-				html += f('Address Type', dest.addressType);
-			}
-
-			if (decoded.metadata?.amount != null) {
-				html += f('Amount', `${decoded.metadata.amount} sats`);
+			if (decoded.metadata?.amount !== undefined && decoded.metadata.amount !== null) {
+				html += row('Amount', `${decoded.metadata.amount} sats`);
 			}
 
 			if (decoded.metadata?.description) {
-				html += f('Description', decoded.metadata.description);
+				html += row('Description', decoded.metadata.description);
+			}
+
+			html += row('Network', decoded.network);
+
+			for (const [, dest] of decoded.destinations.entries()) {
+				const isPrimary = dest === decoded.destination;
+				const sectionLabel = decoded.destinations.length > 1
+					? `${dest.protocol}${isPrimary ? ' ★' : ''}`
+					: dest.protocol;
+
+				html += `<div class="mt-4 mb-1"><span class="text-[#777] text-xs uppercase tracking-wide">${sectionLabel}</span></div>`;
+				html += row('Type', dest.type);
+				html += row('Destination', dest.destination, 'max-w-[280px] break-all');
+
+				if ('addressType' in dest) {
+					html += row('Address Type', dest.addressType);
+				}
 			}
 
 			result.innerHTML = html;
+		} else {
+			result.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
 		}
 
 		result.classList.remove('opacity-0');
 		result.classList.add('opacity-100');
-	}
+	};
 
 	btn.addEventListener('click', handleDecode);
 	input.addEventListener('keydown', (e) => {
-		if (e.key === 'Enter') handleDecode();
+		if (e.key === 'Enter') {handleDecode();}
 	});
 </script>
