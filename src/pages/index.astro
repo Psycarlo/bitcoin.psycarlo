@@ -3,7 +3,8 @@ import Layout from '../layouts/layout.astro';
 ---
 
 <Layout>
-	<div class="h-full bg-[#1a1a1a] text-white font-sans">
+	<div class="pointer-events-none fixed inset-0 z-50" aria-hidden="true" style="background: repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(255,255,255,0.06) 1px, rgba(255,255,255,0.06) 2px);"></div>
+	<div class="h-full bg-[#1a1a1a] text-white" style="font-family: 'Inter Tight', sans-serif;">
 		<main class="h-full flex justify-center items-center">
 			<div id="content" class="flex items-center flex-col w-full max-w-120 p-4 transition-transform duration-500 ease-in-out">
 				<h1 class="text-[28px] m-0 mb-6 text-white">bitcoin-decoder</h1>
@@ -12,11 +13,21 @@ import Layout from '../layouts/layout.astro';
 						type="text"
 						id="bitcoin-input"
 						class="flex-1 px-4 py-3 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
-						placeholder="Enter bitcoin URI, invoice, address, ..."
+						placeholder="Address, Invoice, URI, ..."
 					/>
 					<button id="decode-btn" type="button" class="px-5 py-3 bg-white text-[#1a1a1a] border-none rounded-none text-base cursor-pointer whitespace-nowrap hover:bg-[#e0e0e0]">Decode</button>
 				</div>
-				<div id="result" class="w-full mt-6 transition-opacity duration-400 ease-in-out opacity-0"></div>
+				<div id="result" class="w-full mt-6 transition-opacity duration-400 ease-in-out opacity-0">
+						<div id="meta"></div>
+						<div id="cards-wrapper" class="relative mt-4">
+							<div class="overflow-hidden">
+								<div id="cards-track" class="flex transition-transform duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"></div>
+							</div>
+							<button id="arrow-left" type="button" class="hidden absolute -left-12 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#1a1a1a] border border-[#555] rounded-full text-[#777] cursor-pointer hover:text-white hover:border-[#888] transition-colors z-10">&larr;</button>
+							<button id="arrow-right" type="button" class="hidden absolute -right-12 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#1a1a1a] border border-[#555] rounded-full text-[#777] cursor-pointer hover:text-white hover:border-[#888] transition-colors z-10">&rarr;</button>
+						</div>
+						<div id="dots" class="flex justify-center gap-2 mt-4"></div>
+					</div>
 			</div>
 		</main>
 	</div>
@@ -30,8 +41,28 @@ import Layout from '../layouts/layout.astro';
 	const result = document.querySelector('#result') as HTMLDivElement;
 	const content = document.querySelector('#content') as HTMLDivElement;
 
-	const row = (label: string, text: string, extra = '') =>
-		`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right ${extra}">${text}</span></div>`;
+	const meta = document.querySelector('#meta') as HTMLDivElement;
+	const cardsTrack = document.querySelector('#cards-track') as HTMLDivElement;
+	const dots = document.querySelector('#dots') as HTMLDivElement;
+	const arrowLeft = document.querySelector('#arrow-left') as HTMLButtonElement;
+	const arrowRight = document.querySelector('#arrow-right') as HTMLButtonElement;
+
+	let currentIndex = 0;
+	let totalCards = 0;
+	let startX = 0;
+	let isDragging = false;
+
+	const row = (label: string, text: string, extra = '', last = false) =>
+		`<div class="flex justify-between py-2.5 ${last ? '' : 'border-b border-[#333]'}"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right ${extra}">${text}</span></div>`;
+
+	const goTo = (index: number) => {
+		currentIndex = ((index % totalCards) + totalCards) % totalCards;
+		cardsTrack.style.transform = `translateX(-${currentIndex * 100}%)`;
+		for (const [i, dot] of [...dots.children].entries()) {
+			dot.classList.toggle('bg-white', i === currentIndex);
+			dot.classList.toggle('bg-[#555]', i !== currentIndex);
+		}
+	};
 
 	const handleDecode = async () => {
 		const inputValue = input.value.trim();
@@ -43,41 +74,111 @@ import Layout from '../layouts/layout.astro';
 		content.classList.add('-translate-y-20');
 
 		if (decoded.valid) {
-			let html = '';
+			let metaHtml = '';
 
 			if (decoded.metadata?.amount !== undefined && decoded.metadata.amount !== null) {
-				html += row('Amount', `${decoded.metadata.amount} sats`);
+				metaHtml += row('Amount', `${decoded.metadata.amount} sats`);
 			}
 
 			if (decoded.metadata?.description) {
-				html += row('Description', decoded.metadata.description);
+				metaHtml += row('Description', decoded.metadata.description);
 			}
 
-			html += row('Network', decoded.network);
+			metaHtml += row('Network', decoded.network, '', true);
+			meta.innerHTML = metaHtml;
 
+			totalCards = decoded.destinations.length;
+			currentIndex = 0;
+
+			let cardsHtml = '';
 			for (const [, dest] of decoded.destinations.entries()) {
 				const isPrimary = dest === decoded.destination;
-				const sectionLabel = decoded.destinations.length > 1
+				const sectionLabel = totalCards > 1
 					? `${dest.protocol}${isPrimary ? ' ★' : ''}`
 					: dest.protocol;
 
-				html += `<div class="mt-4 mb-1"><span class="text-[#777] text-xs uppercase tracking-wide">${sectionLabel}</span></div>`;
-				html += row('Type', dest.type);
-				html += row('Destination', dest.destination, 'max-w-[280px] break-all');
+				const hasAddressType = 'addressType' in dest;
+				let card = `<div class="w-full shrink-0 flex-grow-0">`;
+				card += `<div class="border border-[#333] rounded-lg p-4">`;
+				card += `<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${sectionLabel}</span></div>`;
+				card += row('Type', dest.type);
+				card += row('Destination', dest.destination, 'max-w-[280px] break-all', !hasAddressType);
 
-				if ('addressType' in dest) {
-					html += row('Address Type', dest.addressType);
+				if (hasAddressType) {
+					card += row('Address Type', dest.addressType, '', true);
+				}
+
+				card += `</div></div>`;
+				cardsHtml += card;
+			}
+			cardsTrack.innerHTML = cardsHtml;
+
+			const showArrows = totalCards > 1;
+			arrowLeft.classList.toggle('hidden', !showArrows);
+			arrowRight.classList.toggle('hidden', !showArrows);
+
+			let dotsHtml = '';
+			if (totalCards > 1) {
+				for (let i = 0; i < totalCards; i += 1) {
+					dotsHtml += `<button class="w-2 h-2 rounded-full ${i === 0 ? 'bg-white' : 'bg-[#555]'} transition-colors duration-300 cursor-pointer border-none" data-index="${i}"></button>`;
 				}
 			}
-
-			result.innerHTML = html;
+			dots.innerHTML = dotsHtml;
 		} else {
-			result.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
+			meta.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
+			cardsTrack.innerHTML = '';
+			dots.innerHTML = '';
+			arrowLeft.classList.add('hidden');
+			arrowRight.classList.add('hidden');
 		}
 
 		result.classList.remove('opacity-0');
 		result.classList.add('opacity-100');
 	};
+
+	arrowLeft.addEventListener('click', () => { goTo(currentIndex - 1); });
+	arrowRight.addEventListener('click', () => { goTo(currentIndex + 1); });
+
+	dots.addEventListener('click', (e) => {
+		const target = e.target as HTMLElement;
+		const {index} = target.dataset;
+		if (index !== undefined) {
+			goTo(Number(index));
+		}
+	});
+
+	cardsTrack.addEventListener('pointerdown', (e) => {
+		startX = e.clientX;
+		isDragging = true;
+		cardsTrack.style.transition = 'none';
+	});
+
+	cardsTrack.addEventListener('pointermove', (e) => {
+		if (!isDragging) {return;}
+		const diff = e.clientX - startX;
+		const offset = -currentIndex * 100;
+		const parentWidth = cardsTrack.parentElement?.offsetWidth ?? 1;
+		const pxPercent = (diff / parentWidth) * 100;
+		cardsTrack.style.transform = `translateX(${offset + pxPercent}%)`;
+	});
+
+	const endDrag = (e: PointerEvent) => {
+		if (!isDragging) {return;}
+		isDragging = false;
+		cardsTrack.style.transition = '';
+		const diff = e.clientX - startX;
+		const threshold = (cardsTrack.parentElement?.offsetWidth ?? 1) * 0.2;
+		if (diff < -threshold) {
+			goTo(currentIndex + 1);
+		} else if (diff > threshold) {
+			goTo(currentIndex - 1);
+		} else {
+			goTo(currentIndex);
+		}
+	};
+
+	cardsTrack.addEventListener('pointerup', endDrag);
+	cardsTrack.addEventListener('pointercancel', endDrag);
 
 	btn.addEventListener('click', handleDecode);
 	input.addEventListener('keydown', (e) => {
