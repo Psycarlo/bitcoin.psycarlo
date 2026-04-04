@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+#scanner video {
+  width: 100% !important;
+  object-fit: cover;
+}

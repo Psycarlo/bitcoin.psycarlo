@@ -7,14 +7,21 @@ import Layout from '../layouts/layout.astro';
 	<div class="h-full bg-[#1a1a1a] text-white" style="font-family: 'Inter Tight', sans-serif;">
 		<main class="h-full flex justify-center items-center">
 			<div id="content" class="flex items-center flex-col w-full max-w-120 p-4 transition-transform duration-500 ease-in-out">
-				<h1 class="text-[28px] m-0 mb-6 text-white">bitcoin-decoder</h1>
+				<h1 class="relative text-[28px] m-0 mb-6 text-white">bitcoin-decoder<span class="absolute -top-1 -right-11 text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-[#555] text-[#999]">Alpha</span></h1>
 				<div class="flex w-full">
-					<input
-						type="text"
-						id="bitcoin-input"
-						class="flex-1 px-4 py-3 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
-						placeholder="Address, Invoice, URI, ..."
-					/>
+					<div class="relative flex-1">
+						<input
+							type="text"
+							id="bitcoin-input"
+							class="w-full px-4 py-3 pr-10 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
+							placeholder="Address, Invoice, URI, ..."
+						/>
+						<button id="scan-btn" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer p-1 text-[#777] hover:text-white transition-colors" aria-label="Scan QR code">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><line x1="7" y1="12" x2="17" y2="12" />
+							</svg>
+						</button>
+					</div>
 					<button id="decode-btn" type="button" class="px-5 py-3 bg-white text-[#1a1a1a] border-none rounded-none text-base cursor-pointer whitespace-nowrap hover:bg-[#e0e0e0]">Decode</button>
 				</div>
 				<div id="result" class="w-full mt-6 transition-opacity duration-400 ease-in-out opacity-0">
@@ -31,10 +38,18 @@ import Layout from '../layouts/layout.astro';
 			</div>
 		</main>
 	</div>
+	<dialog id="scan-dialog" class="fixed inset-0 m-auto bg-[#1a1a1a] border border-[#555] rounded-lg p-0 w-full max-w-sm h-fit backdrop:bg-black/70">
+		<div class="flex justify-between items-center p-4 border-b border-[#333]">
+			<span class="text-white text-sm font-medium" style="font-family: 'Inter Tight', sans-serif;">Scan QR Code</span>
+			<button id="scan-close" type="button" class="bg-transparent border-none text-[#777] cursor-pointer hover:text-white text-lg leading-none">&times;</button>
+		</div>
+		<div id="scanner" class="w-full overflow-hidden"></div>
+	</dialog>
 </Layout>
 
 <script>
 	import { decode } from 'bitcoin-decoder';
+	import { Html5Qrcode } from 'html5-qrcode';
 
 	const input = document.querySelector('#bitcoin-input') as HTMLInputElement;
 	const btn = document.querySelector('#decode-btn') as HTMLButtonElement;
@@ -184,4 +199,53 @@ import Layout from '../layouts/layout.astro';
 	input.addEventListener('keydown', (e) => {
 		if (e.key === 'Enter') {handleDecode();}
 	});
+
+	const scanBtn = document.querySelector('#scan-btn') as HTMLButtonElement;
+	const scanDialog = document.querySelector('#scan-dialog') as HTMLDialogElement;
+	const scanClose = document.querySelector('#scan-close') as HTMLButtonElement;
+
+	let scanner: Html5Qrcode | null = null;
+
+	const stopScanner = async () => {
+		if (scanner) {
+			try {
+				await scanner.stop();
+			} catch {
+				// scanner already stopped
+			}
+			scanner.clear();
+			scanner = null;
+		}
+	};
+
+	scanBtn.addEventListener('click', () => {
+		scanDialog.showModal();
+		scanner = new Html5Qrcode('scanner');
+		scanner.start(
+			{ facingMode: 'environment' },
+			{ aspectRatio: 1, fps: 10, qrbox: { height: 200, width: 200 } },
+			async (text) => {
+				input.value = text;
+				scanDialog.close();
+				await stopScanner();
+				handleDecode();
+			},
+			() => {
+				// scan in progress
+			},
+		);
+	});
+
+	const closeDialog = async () => {
+		scanDialog.close();
+		await stopScanner();
+	};
+
+	scanClose.addEventListener('click', closeDialog);
+	scanDialog.addEventListener('click', (e) => {
+		if (e.target === scanDialog) {
+			closeDialog();
+		}
+	});
+	scanDialog.addEventListener('close', () => { stopScanner(); });
 </script>
