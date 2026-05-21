@@ -90,9 +90,6 @@ import Layout from '../layouts/layout.astro';
 	const escapeHtml = (text: string) =>
 		text.replaceAll(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 
-	const truncate = (text: string, head = 8, tail = 8) =>
-		text.length <= head + tail + 3 ? text : `${text.slice(0, head)}…${text.slice(-tail)}`;
-
 	const NOSTR_LABELS: Record<string, string> = {
 		naddr: 'Nostr Address',
 		nevent: 'Nostr Event',
@@ -126,10 +123,9 @@ import Layout from '../layouts/layout.astro';
 
 	const entityRows = (entity: NostrEntity): string[] => {
 		if (entity.type === 'nsec') {
-			const masked = truncate(entity.data.hex, 6, 6);
 			return [
-				`<div class="mb-3 text-[#ffb86b] text-xs border border-[#ffb86b]/40 bg-[#ffb86b]/5 rounded px-3 py-2">⚠ Private key. Never share. Click to reveal.</div>`,
-				`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">Hex</span><span class="text-white text-sm text-right max-w-[280px] break-all cursor-pointer select-all" data-nsec-reveal data-full="${escapeHtml(entity.data.hex)}">${escapeHtml(masked)}</span></div>`,
+				`<button type="button" class="block w-full text-left mb-3 text-[#ffb86b] text-xs border border-[#ffb86b]/40 bg-[#ffb86b]/5 rounded px-3 py-2 cursor-pointer hover:bg-[#ffb86b]/10 transition-colors" data-nsec-trigger>⚠ Private key. Never share. Click to reveal.</button>`,
+				`<div class="flex justify-between py-2.5 border-b border-[#333]"><span class="text-[#777] text-sm">Hex</span><span class="text-white text-sm text-right max-w-[280px] break-all cursor-pointer select-all tracking-widest" data-nsec-reveal data-full="${escapeHtml(entity.data.hex)}">••••••••••••</span></div>`,
 			];
 		}
 		if (entity.type === 'npub') {
@@ -277,11 +273,22 @@ import Layout from '../layouts/layout.astro';
 		result.classList.add('opacity-100');
 	};
 
+	const revealNsec = (hex: HTMLElement) => {
+		if (hex.dataset.full) {hex.textContent = hex.dataset.full;}
+		hex.classList.remove('tracking-widest');
+	};
+
 	cardsTrack.addEventListener('click', (e) => {
-		const target = (e.target as HTMLElement).closest('[data-nsec-reveal]') as HTMLElement | null;
-		if (!target) {return;}
-		const {full} = target.dataset;
-		if (full) {target.textContent = full;}
+		const el = e.target as HTMLElement;
+		const trigger = el.closest('[data-nsec-trigger]');
+		if (trigger) {
+			const hex = cardsTrack.querySelector('[data-nsec-reveal]') as HTMLElement | null;
+			if (hex) {revealNsec(hex);}
+			trigger.remove();
+			return;
+		}
+		const target = el.closest('[data-nsec-reveal]') as HTMLElement | null;
+		if (target) {revealNsec(target);}
 	});
 
 	arrowLeft.addEventListener('click', () => { goTo(currentIndex - 1); });
