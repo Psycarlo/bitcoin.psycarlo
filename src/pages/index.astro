@@ -13,14 +13,26 @@ import Layout from '../layouts/layout.astro';
 						<input
 							type="text"
 							id="bitcoin-input"
-							class="w-full px-4 py-3 pr-10 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
+							class="w-full px-4 py-3 pr-20 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
 							placeholder="Address, Invoice, URI, ..."
 						/>
-						<button id="scan-btn" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer p-1 text-[#777] hover:text-white transition-colors" aria-label="Scan QR code">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><line x1="7" y1="12" x2="17" y2="12" />
-							</svg>
-						</button>
+						<div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+							<button id="network-btn" type="button" class="flex items-center bg-transparent border-none cursor-pointer p-1 text-[#777] hover:text-white transition-colors" aria-label="Select network" aria-haspopup="listbox" aria-expanded="false">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+								</svg>
+							</button>
+							<button id="scan-btn" type="button" class="bg-transparent border-none cursor-pointer p-1 text-[#777] hover:text-white transition-colors" aria-label="Scan QR code">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><line x1="7" y1="12" x2="17" y2="12" />
+								</svg>
+							</button>
+						</div>
+						<div id="network-menu" class="hidden absolute right-2 top-full mt-1 z-50 bg-[#1a1a1a] border border-[#555] min-w-32" role="listbox" aria-label="Network">
+							<button type="button" role="option" data-network="mainnet" class="block w-full text-left px-3 py-2 text-xs text-white hover:bg-[#333] cursor-pointer">mainnet</button>
+							<button type="button" role="option" data-network="testnet" class="block w-full text-left px-3 py-2 text-xs text-white hover:bg-[#333] cursor-pointer">testnet</button>
+							<button type="button" role="option" data-network="signet" class="block w-full text-left px-3 py-2 text-xs text-white hover:bg-[#333] cursor-pointer">signet</button>
+						</div>
 					</div>
 					<button id="decode-btn" type="button" class="px-5 py-3 bg-white text-[#1a1a1a] border-none rounded-none text-base cursor-pointer whitespace-nowrap hover:bg-[#e0e0e0]">Decode</button>
 				</div>
@@ -53,7 +65,16 @@ import Layout from '../layouts/layout.astro';
 
 <script>
 	import { decode } from 'bitcoin-decoder';
-	import type { DecodedNostr, NostrEntity, ProfileFetchResult } from 'bitcoin-decoder';
+	import type {
+		DecodedNostr,
+		DecodedTransaction,
+		NostrEntity,
+		ProfileFetchResult,
+		TransactionData,
+		TransactionNetwork,
+		TxInput,
+		TxOutput,
+	} from 'bitcoin-decoder';
 	import { Html5Qrcode } from 'html5-qrcode';
 
 	const input = document.querySelector('#bitcoin-input') as HTMLInputElement;
@@ -62,6 +83,46 @@ import Layout from '../layouts/layout.astro';
 	const content = document.querySelector('#content') as HTMLDivElement;
 	const loading = document.querySelector('#loading') as HTMLDivElement;
 	const loadingText = document.querySelector('#loading-text') as HTMLSpanElement;
+	const networkBtn = document.querySelector('#network-btn') as HTMLButtonElement;
+	const networkMenu = document.querySelector('#network-menu') as HTMLDivElement;
+	let currentNetwork: TransactionNetwork = 'mainnet';
+
+	const updateNetworkMenu = () => {
+		for (const opt of networkMenu.querySelectorAll<HTMLButtonElement>('[data-network]')) {
+			const active = opt.dataset.network === currentNetwork;
+			opt.classList.toggle('text-white', active);
+			opt.classList.toggle('text-[#777]', !active);
+		}
+		networkBtn.setAttribute('aria-label', `Network: ${currentNetwork}`);
+		networkBtn.title = `Network: ${currentNetwork}`;
+	};
+
+	const closeNetworkMenu = () => {
+		networkMenu.classList.add('hidden');
+		networkBtn.setAttribute('aria-expanded', 'false');
+	};
+
+	networkBtn.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const open = networkMenu.classList.toggle('hidden');
+		networkBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+	});
+
+	networkMenu.addEventListener('click', (e) => {
+		const opt = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-network]');
+		if (!opt?.dataset.network) {return;}
+		currentNetwork = opt.dataset.network as TransactionNetwork;
+		updateNetworkMenu();
+		closeNetworkMenu();
+	});
+
+	document.addEventListener('click', (e) => {
+		if (!networkMenu.contains(e.target as Node) && !networkBtn.contains(e.target as Node)) {
+			closeNetworkMenu();
+		}
+	});
+
+	updateNetworkMenu();
 
 	const meta = document.querySelector('#meta') as HTMLDivElement;
 	const cardsTrack = document.querySelector('#cards-track') as HTMLDivElement;
@@ -172,16 +233,60 @@ import Layout from '../layouts/layout.astro';
 		return out;
 	};
 
-	const renderNostr = (decoded: DecodedNostr) => {
-		const { entity } = decoded;
-		const label = NOSTR_LABELS[entity.type] ?? entity.type;
-		meta.innerHTML = row('Type', label, '', true);
+	const TXID_REGEX = /^[0-9a-f]{64}$/i;
+	const isTxidInput = (text: string) => TXID_REGEX.test(text);
+
+	const formatSats = (n: number) => `${n.toLocaleString('en-US')} sats`;
+	const txidShort = (txid: string) => `${txid.slice(0, 8)}…${txid.slice(-8)}`;
+
+	const inputItem = (inp: TxInput) => {
+		if (inp.isCoinbase) {
+			return `<div class="text-xs text-[#aaa]">Coinbase</div>`;
+		}
+		const prev = inp.prevout;
+		const addr = prev?.address ?? prev?.scriptPubKeyType ?? '—';
+		const val = prev ? formatSats(prev.value) : '';
+		return `<div class="flex justify-between gap-2 text-xs"><span class="text-white break-all max-w-[200px]">${escapeHtml(addr)}</span><span class="text-[#aaa] whitespace-nowrap">${val}</span></div>`;
+	};
+
+	const outputItem = (out: TxOutput) => {
+		const addr = out.address ?? out.scriptPubKeyType;
+		return `<div class="flex justify-between gap-2 text-xs"><span class="text-white break-all max-w-[200px]">${escapeHtml(addr)}</span><span class="text-[#aaa] whitespace-nowrap">${formatSats(out.value)}</span></div>`;
+	};
+
+	const ioListRow = (label: string, items: string) =>
+		`<div class="py-2.5 border-b border-[#333]"><div class="text-[#777] text-sm mb-2">${label}</div><div class="flex flex-col gap-1.5">${items}</div></div>`;
+
+	const transactionDataRows = (data: TransactionData): string[] => {
+		const blockSuffix = data.status.blockHeight ? ` · #${data.status.blockHeight}` : '';
+		const statusText = data.status.confirmed ? `Confirmed${blockSuffix}` : 'Mempool';
+		return [
+			row('Status', statusText),
+			row('Network', data.network),
+			...(data.miner ? [row('Miner', data.miner.name)] : []),
+			row('Fee', formatSats(data.fee)),
+			row('Fee rate', `${data.feeRate.toFixed(2)} sat/vB`),
+			row('Size', `${data.size} B · ${data.vsize} vB`),
+			row('Total in', formatSats(data.totalInput)),
+			row('Total out', formatSats(data.totalOutput)),
+			ioListRow(`Inputs (${data.inputs.length})`, data.inputs.map(inputItem).join('')),
+			ioListRow(`Outputs (${data.outputs.length})`, data.outputs.map(outputItem).join('')),
+		];
+	};
+
+	const renderTransaction = (decoded: DecodedTransaction) => {
+		meta.innerHTML = row('Type', 'Transaction', '', true);
+
+		const rows = [
+			row('Txid', txidShort(decoded.txid), 'cursor-pointer select-all', false),
+			...(decoded.data ? transactionDataRows(decoded.data) : []),
+		];
 
 		const card = [
 			`<div class="w-full shrink-0 flex-grow-0">`,
 			`<div class="border border-[#333] rounded-lg p-4">`,
-			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${entity.type}</span></div>`,
-			...stripLastDivider(entityRows(entity)),
+			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">transaction</span></div>`,
+			...stripLastDivider(rows),
 			`</div></div>`,
 		];
 		cardsTrack.innerHTML = card.join('');
@@ -193,23 +298,66 @@ import Layout from '../layouts/layout.astro';
 		arrowRight.classList.add('hidden');
 	};
 
+	const renderNostr = (decoded: DecodedNostr) => {
+		const { entity } = decoded;
+		const label = NOSTR_LABELS[entity.type] ?? entity.type;
+		meta.innerHTML = row('Type', label, '', true);
+
+		const bech32Label = entity.type.toUpperCase();
+		const rows = [
+			row(bech32Label, decoded.input, 'max-w-[280px] break-all'),
+			...entityRows(entity),
+		];
+
+		const card = [
+			`<div class="w-full shrink-0 flex-grow-0">`,
+			`<div class="border border-[#333] rounded-lg p-4">`,
+			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${entity.type}</span></div>`,
+			...stripLastDivider(rows),
+			`</div></div>`,
+		];
+		cardsTrack.innerHTML = card.join('');
+
+		totalCards = 1;
+		currentIndex = 0;
+		dots.innerHTML = '';
+		arrowLeft.classList.add('hidden');
+		arrowRight.classList.add('hidden');
+	};
+
+	const getLoadingText = (isNostr: boolean, isTxid: boolean) => {
+		if (isNostr) {return 'Fetching nostr profile...';}
+		if (isTxid) {return 'Fetching transaction...';}
+		return 'Decoding...';
+	};
+
 	const handleDecode = async () => {
 		const inputValue = input.value.trim();
 		if (!inputValue) {return;}
 
 		const isNostr = isNostrInput(inputValue);
-		loadingText.textContent = isNostr ? 'Fetching nostr profile...' : 'Decoding...';
+		const isTxid = !isNostr && isTxidInput(inputValue);
+		loadingText.textContent = getLoadingText(isNostr, isTxid);
 		loading.classList.remove('hidden');
 		result.classList.remove('opacity-100');
 		result.classList.add('opacity-0');
 		content.classList.add('-translate-y-20');
 
-		const decoded = await decode(inputValue, { nostr: { fetchProfile: true } });
+		const decoded = await decode(inputValue, {
+			nostr: { fetchProfile: true },
+			transaction: {
+				fetch: true,
+				fetchMiner: true,
+				network: currentNetwork,
+			},
+		});
 		input.value = '';
 		loading.classList.add('hidden');
 
 		if (decoded.valid && decoded.kind === 'nostr') {
 			renderNostr(decoded);
+		} else if (decoded.valid && decoded.kind === 'transaction') {
+			renderTransaction(decoded);
 		} else if (decoded.valid) {
 			let metaHtml = '';
 
