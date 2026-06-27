@@ -66,10 +66,16 @@ import Layout from '../layouts/layout.astro';
 <script>
 	import { decode } from 'bitcoin-decoder';
 	import type {
+		DecodedKey,
 		DecodedNostr,
+		DecodedPayment,
+		DecodedPsbt,
 		DecodedTransaction,
+		ExtendedKey,
 		NostrEntity,
 		ProfileFetchResult,
+		PsbtInput,
+		PsbtOutput,
 		TransactionData,
 		TransactionNetwork,
 		TxInput,
@@ -284,6 +290,31 @@ import Layout from '../layouts/layout.astro';
 		];
 	};
 
+	const buildCard = (section: string, rows: string[]) =>
+		[
+			`<div class="w-full shrink-0 flex-grow-0">`,
+			`<div class="border border-[#333] rounded-lg p-4">`,
+			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${section}</span></div>`,
+			...stripLastDivider(rows),
+			`</div></div>`,
+		].join('');
+
+	const setupCarousel = (count: number) => {
+		totalCards = count;
+		currentIndex = 0;
+		cardsTrack.style.transform = 'translateX(0)';
+		const showArrows = count > 1;
+		arrowLeft.classList.toggle('hidden', !showArrows);
+		arrowRight.classList.toggle('hidden', !showArrows);
+		let dotsHtml = '';
+		if (count > 1) {
+			for (let i = 0; i < count; i += 1) {
+				dotsHtml += `<button class="w-2 h-2 rounded-full ${i === 0 ? 'bg-white' : 'bg-[#555]'} transition-colors duration-300 cursor-pointer border-none" data-index="${i}"></button>`;
+			}
+		}
+		dots.innerHTML = dotsHtml;
+	};
+
 	const renderTransaction = (decoded: DecodedTransaction) => {
 		meta.innerHTML = row('Type', 'Transaction', '', true);
 
@@ -292,20 +323,102 @@ import Layout from '../layouts/layout.astro';
 			...(decoded.data ? transactionDataRows(decoded.data) : []),
 		];
 
-		const card = [
-			`<div class="w-full shrink-0 flex-grow-0">`,
-			`<div class="border border-[#333] rounded-lg p-4">`,
-			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">transaction</span></div>`,
-			...stripLastDivider(rows),
-			`</div></div>`,
-		];
-		cardsTrack.innerHTML = card.join('');
+		cardsTrack.innerHTML = buildCard('transaction', rows);
+		setupCarousel(1);
+	};
 
-		totalCards = 1;
-		currentIndex = 0;
-		dots.innerHTML = '';
-		arrowLeft.classList.add('hidden');
-		arrowRight.classList.add('hidden');
+	const secretWarning = (message: string) =>
+		`<button type="button" class="block w-full text-left mb-3 text-[#ffb86b] text-xs border border-[#ffb86b]/40 bg-[#ffb86b]/5 rounded px-3 py-2 cursor-pointer hover:bg-[#ffb86b]/10 transition-colors" data-secret-trigger>⚠ ${message}</button>`;
+
+	const secretRow = (label: string, value: string, last = false) =>
+		`<div class="flex justify-between py-2.5 ${last ? '' : 'border-b border-[#333]'}"><span class="text-[#777] text-sm">${label}</span><span class="text-white text-sm text-right max-w-[280px] break-all cursor-pointer select-all tracking-widest" data-secret-reveal data-full="${escapeHtml(value)}">••••••••••••</span></div>`;
+
+	const KEY_SCRIPT_LABELS: Record<string, string> = {
+		p2pkh: 'Legacy (P2PKH)',
+		p2wpkh: 'Native SegWit (P2WPKH)',
+		'p2wpkh-p2sh': 'Nested SegWit (P2WPKH-P2SH)',
+		p2wsh: 'Native SegWit Multisig (P2WSH)',
+		'p2wsh-p2sh': 'Nested SegWit Multisig (P2WSH-P2SH)',
+	};
+
+	const renderKey = (decoded: DecodedKey) => {
+		const { key }: { key: ExtendedKey } = decoded;
+		const typeLabel = key.isPrivate ? 'Extended Private Key' : 'Extended Public Key';
+		meta.innerHTML = row('Type', `${typeLabel} (${key.type})`, '', true);
+
+		const childIndex = `${key.index}${key.hardened ? "'" : ''}`;
+		const rows = [
+			row(key.type.toUpperCase(), decoded.input, 'max-w-[280px] break-all'),
+			row('Network', key.network),
+			row('Script Type', KEY_SCRIPT_LABELS[key.scriptType] ?? key.scriptType),
+			row('Depth', String(key.depth)),
+			row('Parent Fingerprint', key.parentFingerprint),
+			row('Child Index', childIndex),
+			...(key.fingerprint ? [row('Fingerprint', key.fingerprint)] : []),
+			row('Chain Code', key.chainCode, 'max-w-[280px] break-all'),
+			...(key.isPrivate
+				? [
+						secretWarning('Private key. Never share. Click to reveal.'),
+						secretRow('Key', key.key, true),
+					]
+				: [row('Key', key.key, 'max-w-[280px] break-all', true)]),
+		];
+
+		cardsTrack.innerHTML = buildCard(key.type, rows);
+		setupCarousel(1);
+	};
+
+	const psbtUtxoLabel = (inp: PsbtInput) => {
+		if (inp.witnessUtxo) {return 'Witness';}
+		if (inp.nonWitnessUtxo) {return 'Non-witness';}
+		return 'None';
+	};
+
+	const psbtInputCard = (inp: PsbtInput, index: number, count: number) => {
+		const outpoint = `${txidShort(inp.txid)}:${inp.vout}`;
+		const rows = [
+			row('Outpoint', outpoint, 'max-w-[280px] break-all'),
+			...(inp.address ? [row('Address', inp.address, 'max-w-[280px] break-all')] : []),
+			...(inp.scriptPubKeyType ? [row('Script', inp.scriptPubKeyType)] : []),
+			...(inp.value === undefined ? [] : [row('Value', formatSats(inp.value))]),
+			row('Partial Sigs', String(inp.partialSigs)),
+			...(inp.sighashType === undefined ? [] : [row('Sighash', String(inp.sighashType))]),
+			row('UTXO', psbtUtxoLabel(inp), '', true),
+		];
+		return buildCard(`input ${index + 1}/${count}`, rows);
+	};
+
+	const psbtOutputCard = (out: PsbtOutput, index: number, count: number) => {
+		const rows = [
+			...(out.address ? [row('Address', out.address, 'max-w-[280px] break-all')] : []),
+			row('Script', out.scriptPubKeyType),
+			row('Value', formatSats(out.value), '', true),
+		];
+		return buildCard(`output ${index + 1}/${count}`, rows);
+	};
+
+	const renderPsbt = (decoded: DecodedPsbt) => {
+		const { data } = decoded;
+		meta.innerHTML = row('Type', 'PSBT', '', true);
+
+		const summaryRows = [
+			row('PSBT Version', `v${data.version}`),
+			row('Tx Version', String(data.txVersion)),
+			row('Locktime', String(data.locktime)),
+			row('Inputs', String(data.inputCount)),
+			row('Outputs', String(data.outputCount)),
+			...(data.totalInput === undefined ? [] : [row('Total In', formatSats(data.totalInput))]),
+			row('Total Out', formatSats(data.totalOutput)),
+			...(data.fee === undefined ? [] : [row('Fee', formatSats(data.fee), '', true)]),
+		];
+
+		const cards = [
+			buildCard('summary', summaryRows),
+			...data.inputs.map((inp, i) => psbtInputCard(inp, i, data.inputs.length)),
+			...data.outputs.map((out, i) => psbtOutputCard(out, i, data.outputs.length)),
+		];
+		cardsTrack.innerHTML = cards.join('');
+		setupCarousel(cards.length);
 	};
 
 	const renderNostr = (decoded: DecodedNostr) => {
@@ -319,20 +432,41 @@ import Layout from '../layouts/layout.astro';
 			...entityRows(entity),
 		];
 
-		const card = [
-			`<div class="w-full shrink-0 flex-grow-0">`,
-			`<div class="border border-[#333] rounded-lg p-4">`,
-			`<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${entity.type}</span></div>`,
-			...stripLastDivider(rows),
-			`</div></div>`,
-		];
-		cardsTrack.innerHTML = card.join('');
+		cardsTrack.innerHTML = buildCard(entity.type, rows);
+		setupCarousel(1);
+	};
 
-		totalCards = 1;
-		currentIndex = 0;
-		dots.innerHTML = '';
-		arrowLeft.classList.add('hidden');
-		arrowRight.classList.add('hidden');
+	const paymentCard = (
+		dest: DecodedPayment['destinations'][number],
+		isPrimary: boolean,
+		many: boolean,
+	) => {
+		const sectionLabel = many ? `${dest.protocol}${isPrimary ? ' ★' : ''}` : dest.protocol;
+		const hasAddressType = 'addressType' in dest;
+		const rows = [
+			row('Type', dest.type),
+			row('Destination', dest.value, 'max-w-[280px] break-all', !hasAddressType),
+			...(hasAddressType ? [row('Address Type', dest.addressType, '', true)] : []),
+		];
+		return buildCard(sectionLabel, rows);
+	};
+
+	const renderPayment = (decoded: DecodedPayment) => {
+		let metaHtml = '';
+		if (decoded.metadata?.amount !== undefined && decoded.metadata.amount !== null) {
+			metaHtml += row('Amount', `${decoded.metadata.amount} sats`);
+		}
+		if (decoded.metadata?.description) {
+			metaHtml += row('Description', decoded.metadata.description);
+		}
+		metaHtml += row('Network', decoded.network, '', true);
+		meta.innerHTML = metaHtml;
+
+		const many = decoded.destinations.length > 1;
+		cardsTrack.innerHTML = decoded.destinations
+			.map((dest) => paymentCard(dest, dest === decoded.destination, many))
+			.join('');
+		setupCarousel(decoded.destinations.length);
 	};
 
 	const getLoadingText = (isNostr: boolean, isTxid: boolean) => {
@@ -355,6 +489,7 @@ import Layout from '../layouts/layout.astro';
 
 		const decoded = await decode(inputValue, {
 			nostr: { fetchProfile: true },
+			psbt: { network: currentNetwork },
 			transaction: {
 				fetch: true,
 				fetchMiner: true,
@@ -368,57 +503,12 @@ import Layout from '../layouts/layout.astro';
 			renderNostr(decoded);
 		} else if (decoded.valid && decoded.kind === 'transaction') {
 			renderTransaction(decoded);
-		} else if (decoded.valid) {
-			let metaHtml = '';
-
-			if (decoded.metadata?.amount !== undefined && decoded.metadata.amount !== null) {
-				metaHtml += row('Amount', `${decoded.metadata.amount} sats`);
-			}
-
-			if (decoded.metadata?.description) {
-				metaHtml += row('Description', decoded.metadata.description);
-			}
-
-			metaHtml += row('Network', decoded.network, '', true);
-			meta.innerHTML = metaHtml;
-
-			totalCards = decoded.destinations.length;
-			currentIndex = 0;
-
-			let cardsHtml = '';
-			for (const [, dest] of decoded.destinations.entries()) {
-				const isPrimary = dest === decoded.destination;
-				const sectionLabel = totalCards > 1
-					? `${dest.protocol}${isPrimary ? ' ★' : ''}`
-					: dest.protocol;
-
-				const hasAddressType = 'addressType' in dest;
-				let card = `<div class="w-full shrink-0 flex-grow-0">`;
-				card += `<div class="border border-[#333] rounded-lg p-4">`;
-				card += `<div class="mb-3"><span class="text-[#777] text-xs uppercase tracking-wide">${sectionLabel}</span></div>`;
-				card += row('Type', dest.type);
-				card += row('Destination', dest.destination, 'max-w-[280px] break-all', !hasAddressType);
-
-				if (hasAddressType) {
-					card += row('Address Type', dest.addressType, '', true);
-				}
-
-				card += `</div></div>`;
-				cardsHtml += card;
-			}
-			cardsTrack.innerHTML = cardsHtml;
-
-			const showArrows = totalCards > 1;
-			arrowLeft.classList.toggle('hidden', !showArrows);
-			arrowRight.classList.toggle('hidden', !showArrows);
-
-			let dotsHtml = '';
-			if (totalCards > 1) {
-				for (let i = 0; i < totalCards; i += 1) {
-					dotsHtml += `<button class="w-2 h-2 rounded-full ${i === 0 ? 'bg-white' : 'bg-[#555]'} transition-colors duration-300 cursor-pointer border-none" data-index="${i}"></button>`;
-				}
-			}
-			dots.innerHTML = dotsHtml;
+		} else if (decoded.valid && decoded.kind === 'key') {
+			renderKey(decoded);
+		} else if (decoded.valid && decoded.kind === 'psbt') {
+			renderPsbt(decoded);
+		} else if (decoded.valid && decoded.kind === 'payment') {
+			renderPayment(decoded);
 		} else {
 			meta.innerHTML = `<div class="text-[#ff6b6b] text-sm text-center py-2.5">${decoded.errorMessage}</div>`;
 			cardsTrack.innerHTML = '';
@@ -431,22 +521,26 @@ import Layout from '../layouts/layout.astro';
 		result.classList.add('opacity-100');
 	};
 
-	const revealNsec = (hex: HTMLElement) => {
+	const revealSecret = (hex: HTMLElement) => {
 		if (hex.dataset.full) {hex.textContent = hex.dataset.full;}
 		hex.classList.remove('tracking-widest');
 	};
 
+	const SECRET_TRIGGER = '[data-nsec-trigger], [data-secret-trigger]';
+	const SECRET_REVEAL = '[data-nsec-reveal], [data-secret-reveal]';
+
 	cardsTrack.addEventListener('click', (e) => {
 		const el = e.target as HTMLElement;
-		const trigger = el.closest('[data-nsec-trigger]');
+		const trigger = el.closest(SECRET_TRIGGER);
 		if (trigger) {
-			const hex = cardsTrack.querySelector('[data-nsec-reveal]') as HTMLElement | null;
-			if (hex) {revealNsec(hex);}
+			const card = trigger.closest('.shrink-0') ?? cardsTrack;
+			const hex = card.querySelector(SECRET_REVEAL) as HTMLElement | null;
+			if (hex) {revealSecret(hex);}
 			trigger.remove();
 			return;
 		}
-		const target = el.closest('[data-nsec-reveal]') as HTMLElement | null;
-		if (target) {revealNsec(target);}
+		const target = el.closest(SECRET_REVEAL) as HTMLElement | null;
+		if (target) {revealSecret(target);}
 	});
 
 	arrowLeft.addEventListener('click', () => { goTo(currentIndex - 1); });
