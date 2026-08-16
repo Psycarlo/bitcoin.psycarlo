@@ -14,7 +14,7 @@ import Layout from '../layouts/layout.astro';
 							type="text"
 							id="bitcoin-input"
 							class="w-full px-4 py-3 pr-20 bg-transparent border border-[#555] rounded-none text-white text-base outline-none placeholder-[#777] focus:border-[#888]"
-							placeholder="Address, Invoice, URI, ..."
+							placeholder="Address, Invoice, VTXO, URI, ..."
 						/>
 						<div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
 							<button id="network-btn" type="button" class="flex items-center bg-transparent border-none cursor-pointer p-1 text-[#777] hover:text-white transition-colors" aria-label="Select network" aria-haspopup="listbox" aria-expanded="false">
@@ -71,6 +71,7 @@ import Layout from '../layouts/layout.astro';
 		DecodedPayment,
 		DecodedPsbt,
 		DecodedTransaction,
+		DecodedVtxo,
 		ExtendedKey,
 		NostrEntity,
 		ProfileFetchResult,
@@ -80,6 +81,8 @@ import Layout from '../layouts/layout.astro';
 		TransactionNetwork,
 		TxInput,
 		TxOutput,
+		VtxoExitStep,
+		VtxoPolicy,
 	} from 'bitcoin-decoder';
 	import { Html5Qrcode } from 'html5-qrcode';
 
@@ -469,6 +472,88 @@ import Layout from '../layouts/layout.astro';
 		setupCarousel(decoded.destinations.length);
 	};
 
+	const VTXO_POLICY_LABELS: Record<string, string> = {
+		checkpoint: 'Checkpoint',
+		expiry: 'Expiry',
+		'hark-forfeit': 'Hark Forfeit',
+		'hark-forfeit-v1': 'Hark Forfeit (v1)',
+		'hark-leaf': 'Hark Leaf',
+		'hark-leaf-v1': 'Hark Leaf (v1)',
+		pubkey: 'Pubkey',
+		'server-htlc-receive': 'Server HTLC (receive)',
+		'server-htlc-receive-v1': 'Server HTLC (receive, v1)',
+		'server-htlc-send': 'Server HTLC (send)',
+		'server-htlc-send-v1': 'Server HTLC (send, v1)',
+		'server-owned': 'Server Owned',
+	};
+
+	const policyRows = (policy: VtxoPolicy): string[] => {
+		if ('internalKey' in policy) {
+			return [row('Internal Key', policy.internalKey, 'max-w-[280px] break-all')];
+		}
+		if ('paymentHash' in policy) {
+			return [
+				row('User Pubkey', policy.userPubkey, 'max-w-[280px] break-all'),
+				row('Payment Hash', policy.paymentHash, 'max-w-[280px] break-all'),
+				row('HTLC Expiry', `#${policy.htlcExpiry.toLocaleString('en-US')}`),
+				...('htlcExpiryDelta' in policy
+					? [row('Expiry Delta', `${policy.htlcExpiryDelta} blocks`)]
+					: []),
+			];
+		}
+		if ('unlockHash' in policy) {
+			return [
+				row('User Pubkey', policy.userPubkey, 'max-w-[280px] break-all'),
+				row('Unlock Hash', policy.unlockHash, 'max-w-[280px] break-all'),
+			];
+		}
+		if ('userPubkey' in policy) {
+			return [row('User Pubkey', policy.userPubkey, 'max-w-[280px] break-all')];
+		}
+		return [];
+	};
+
+	const outpoint = (point: { txid: string; vout: number }) =>
+		`${txidShort(point.txid)}:${point.vout}`;
+
+	const vtxoExitCard = (step: VtxoExitStep, index: number, count: number) => {
+		const rows = [
+			row('Txid', txidShort(step.txid), 'cursor-pointer select-all'),
+			row('Vout', String(step.vout)),
+			row('In', formatSats(step.inputAmount)),
+			row('Out', formatSats(step.outputAmount)),
+			row('Fee', formatSats(step.feeAmount)),
+			row('Signed', step.isSigned ? 'Yes' : 'No', '', true),
+		];
+		return buildCard(`exit ${index + 1}/${count}`, rows);
+	};
+
+	const renderVtxo = (decoded: DecodedVtxo) => {
+		const { data } = decoded;
+		meta.innerHTML = row('Type', data.isVirtualUtxo ? 'VTXO (Virtual UTXO)' : 'VTXO', '', true);
+
+		const summaryRows = [
+			row('VTXO ID', outpoint(data.point), 'max-w-[280px] break-all'),
+			row('Amount', formatSats(data.amount)),
+			row('Expiry Height', `#${data.expiryHeight.toLocaleString('en-US')}`),
+			row('Exit Delta', `${data.exitDelta} blocks`),
+			row('Server Pubkey', data.serverPubkey, 'max-w-[280px] break-all'),
+			row('Anchor', outpoint(data.anchorPoint), 'max-w-[280px] break-all'),
+			row('Chain Depth', String(data.chainDepth)),
+			row('Total Fees', formatSats(data.totalFees)),
+			row('Signed', data.isFullySigned ? 'Fully signed' : 'Incomplete', '', true),
+		];
+
+		const policyLabel = VTXO_POLICY_LABELS[data.policy.kind] ?? data.policy.kind;
+		const cards = [
+			buildCard('vtxo', summaryRows),
+			buildCard('policy', [row('Kind', policyLabel), ...policyRows(data.policy)]),
+			...data.exitChain.map((step, i) => vtxoExitCard(step, i, data.exitChain.length)),
+		];
+		cardsTrack.innerHTML = cards.join('');
+		setupCarousel(cards.length);
+	};
+
 	const getLoadingText = (isNostr: boolean, isTxid: boolean) => {
 		if (isNostr) {return 'Fetching nostr profile...';}
 		if (isTxid) {return 'Fetching transaction...';}
@@ -495,6 +580,7 @@ import Layout from '../layouts/layout.astro';
 				fetchMiner: true,
 				network: currentNetwork,
 			},
+			vtxo: {},
 		});
 		input.value = '';
 		loading.classList.add('hidden');
@@ -507,6 +593,8 @@ import Layout from '../layouts/layout.astro';
 			renderKey(decoded);
 		} else if (decoded.valid && decoded.kind === 'psbt') {
 			renderPsbt(decoded);
+		} else if (decoded.valid && decoded.kind === 'vtxo') {
+			renderVtxo(decoded);
 		} else if (decoded.valid && decoded.kind === 'payment') {
 			renderPayment(decoded);
 		} else {
